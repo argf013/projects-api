@@ -7,8 +7,15 @@
     "strict": true,
     "moduleResolution": "node",
     "skipLibCheck": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "noImplicitReturns": true,
+    "noImplicitAny": true
   },
-  "include": ["netlify/functions"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "netlify/functions"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

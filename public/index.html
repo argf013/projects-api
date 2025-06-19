@@ -1,10 +1,343 @@
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test</title>
+    <title>Project Thumbnail Uploader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .upload-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .upload-section.dragover {
+            border-color: #007bff;
+            background-color: #f0f8ff;
+        }
+
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .preview {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .preview img {
+            max-width: 300px;
+            max-height: 200px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .result.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .result.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .url-result {
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            word-break: break-all;
+        }
+    </style>
 </head>
+
 <body>
-    
+    <div class="container">
+        <h1>Project Thumbnail Uploader</h1>
+
+        <div class="upload-section" id="uploadSection">
+            <h3>Select or Drop Image File</h3>
+            <p>Supported formats: JPEG, PNG, GIF, WebP</p>
+            <input type="file" id="fileInput" accept="image/*">
+            <br>
+            <input type="text" id="filenameInput" placeholder="Enter file name (optional)"
+                style="margin:10px 0; padding:10px; border:1px solid #ddd; border-radius:4px; width:100%; max-width:300px;">
+            <button onclick="selectFile()">Choose File</button>
+        </div>
+
+        <div class="preview" id="preview"></div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Uploading thumbnail...</p>
+        </div>
+
+        <div class="result" id="result"></div>
+
+        <div style="text-align: center;">
+            <button onclick="uploadThumbnail()" id="uploadBtn" disabled>Upload Thumbnail</button>
+            <button onclick="clearForm()">Clear</button>
+        </div>
+    </div>
+
+    <script>
+        console.log(window.location.href);
+
+        const API_BASE_URL = '/.netlify/functions/api'; // Adjust this to your API URL
+        let selectedFile = null;
+
+        // File input change handler
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+        // Drag and drop handlers
+        const uploadSection = document.getElementById('uploadSection');
+        uploadSection.addEventListener('dragover', handleDragOver);
+        uploadSection.addEventListener('dragleave', handleDragLeave);
+        uploadSection.addEventListener('drop', handleDrop);
+
+        function selectFile() {
+            document.getElementById('fileInput').click();
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                processFile(file);
+            }
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            uploadSection.classList.add('dragover');
+        }
+
+        function handleDragLeave(event) {
+            event.preventDefault();
+            uploadSection.classList.remove('dragover');
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            uploadSection.classList.remove('dragover');
+
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    processFile(file);
+                } else {
+                    showResult('Please select a valid image file.', 'error');
+                }
+            }
+        }
+
+        function processFile(file) {
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                showResult('Please select a valid image file.', 'error');
+                return;
+            }
+
+            // Validate file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                showResult('File size must be less than 10MB.', 'error');
+                return;
+            }
+
+            selectedFile = file;
+
+            // Show preview
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const preview = document.getElementById('preview');
+                preview.innerHTML = `
+                    <h4>Preview:</h4>
+                    <img src="${e.target.result}" alt="Preview">
+                    <p><strong>File:</strong> ${file.name}</p>
+                    <p><strong>Size:</strong> ${(file.size / 1024).toFixed(2)} KB</p>
+                `;
+
+                document.getElementById('uploadBtn').disabled = false;
+            };
+            reader.readAsDataURL(file);
+
+            hideResult();
+        }
+
+        async function uploadThumbnail() {
+            if (!selectedFile) {
+                showResult('Please select a file first.', 'error');
+                return;
+            }
+
+            showLoading(true);
+            document.getElementById('uploadBtn').disabled = true;
+
+            try {
+                // Convert file to base64
+                const base64 = await fileToBase64(selectedFile);
+
+                // Ambil nama file dari input, jika kosong pakai nama file asli
+                const filenameInput = document.getElementById('filenameInput').value.trim();
+                const filename = filenameInput !== '' ? filenameInput : selectedFile.name;
+
+                const requestData = {
+                    file: base64,
+                    filename: filename
+                };
+
+                const response = await fetch(`${API_BASE_URL}/files/thumbnail`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.code === 200) {
+                    showResult(`
+                        <strong>Upload successful!</strong><br>
+                        <div class="url-result">
+                            <strong>Image URL:</strong><br>
+                            <a href="${result.data.url}" target="_blank">${result.data.url}</a>
+                        </div>
+                        <p><strong>Public ID:</strong> ${result.data.id}</p>
+                        <p><strong>Filename:</strong> ${result.data.filename}</p>
+                    `, 'success');
+                } else {
+                    showResult(`Upload failed: ${result.message || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showResult(`Upload failed: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+                document.getElementById('uploadBtn').disabled = false;
+            }
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+        }
+
+        function hideResult() {
+            document.getElementById('result').style.display = 'none';
+        }
+
+        function clearForm() {
+            selectedFile = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('filenameInput').value = '';
+            document.getElementById('preview').innerHTML = '';
+            document.getElementById('uploadBtn').disabled = true;
+            hideResult();
+            showLoading(false);
+        }
+    </script>
 </body>
+
 </html>
