@@ -3,8 +3,13 @@ import serverless from 'serverless-http';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import { neon } from '@neondatabase/serverless';
-import * as fileController from '../../routes/files';
-import * as projectController from '../../routes/projects';
+import * as fileController from '../../src/routes/files';
+import * as projectController from '../../src/routes/projects';
+import {
+  basicLimiter,
+  strictLimiter,
+  uploadLimiter,
+} from '../../src/middleware/middleware';
 
 dotenv.config();
 
@@ -13,20 +18,22 @@ const router = express.Router();
 const sql = neon(process.env.DATABASE_URL!);
 
 // Middleware
+app.set('trust proxy', true); 
 app.use(express.json({ limit: '50mb' }));
-
+app.use(basicLimiter);
 
 // route for file operations
 router.get('/files', fileController.getAllFiles);
 router.get('/files/thumbnails', fileController.getAllThumbnails);
-router.post('/files/thumbnail', fileController.uploadThumbnail);
+router.post('/files/thumbnail', uploadLimiter, fileController.uploadThumbnail);
+router.delete('/files/thumbnail', strictLimiter, fileController.deleteThumbnails);
 
 // route for project operations
-router.post('/project', projectController.createProject);
+router.post('/project', strictLimiter, projectController.createProject);
 router.get('/projects', projectController.getAllProjects);
 router.get('/project/:id', projectController.getProjectById);
-router.put('/project/:id', projectController.updateProject);
-router.delete('/project/:id', projectController.deleteProject);
+router.put('/project/:id', strictLimiter, projectController.updateProject);
+router.delete('/project', strictLimiter, projectController.deleteProject);
 
 router.get('/hello', (req, res) => {
   res.json({ message: 'Hello, world!' });
