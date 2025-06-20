@@ -3,6 +3,8 @@ import serverless from 'serverless-http';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import { neon } from '@neondatabase/serverless';
+import * as fileController from '../../routes/files';
+import * as projectController from '../../routes/projects';
 
 dotenv.config();
 
@@ -13,9 +15,6 @@ const sql = neon(process.env.DATABASE_URL!);
 // Middleware
 app.use(express.json({ limit: '50mb' }));
 
-// Import routes
-import * as fileController from '../../routes/files';
-import * as projectController from '../../routes/projects';
 
 // route for file operations
 router.get('/files', fileController.getAllFiles);
