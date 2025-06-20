@@ -7,6 +7,7 @@ A simple API to manage project data along with thumbnail images, built with Expr
 - CRUD Project (Create, Read, Update, Delete)
 - Upload and manage thumbnail files (Cloudinary)
 - Pagination for project and file listing
+- Bulk deletion for projects and thumbnails
 - Endpoint to initialize the database (tables)
 - Public HTML uploader for thumbnails
 
@@ -55,19 +56,22 @@ All endpoints are prefixed with `/api` (or `/.netlify/functions/api` on Netlify)
 - `GET    /project/:id` — Project details
 - `POST   /project` — Add a project
 - `PUT    /project/:id` — Update a project
-- `DELETE /project/:id` — Delete a project
+- `DELETE /project` — Delete multiple projects (body: `{ ids: string[] }`)
 
 ### File & Thumbnail
 
-- `GET  /files` — List thumbnail files
-- `GET  /files/thumbnails` — List thumbnails from Cloudinary
-- `POST /files/thumbnail` — Upload thumbnail (body: `{ file: base64, filename: string }`)
+- `GET    /files` — List thumbnail files
+- `GET    /files/thumbnails` — List thumbnails from Cloudinary
+- `POST   /files/thumbnail` — Upload thumbnail (body: `{ file: base64, filename: string }`)
+- `DELETE /files/thumbnails` — Delete multiple thumbnails (body: `{ ids: string[] }`)
 
 ### Database Initialization
 
 - `GET /init` — Create `projects` & `files` tables if they do not exist
 
-## Example Thumbnail Upload Request
+## Example Requests
+
+### Thumbnail Upload Request
 
 ```http
 POST /files/thumbnail
@@ -76,6 +80,28 @@ Content-Type: application/json
 {
   "file": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
   "filename": "myimage.png"
+}
+```
+
+### Bulk Project Deletion
+
+```http
+DELETE /project
+Content-Type: application/json
+
+{
+  "ids": ["project-id-1", "project-id-2", "project-id-3"]
+}
+```
+
+### Bulk Thumbnail Deletion
+
+```http
+DELETE /files/thumbnails
+Content-Type: application/json
+
+{
+  "ids": ["project-thumbnails/thumbnail-id-1", "project-thumbnails/thumbnail-id-2"]
 }
 ```
 
