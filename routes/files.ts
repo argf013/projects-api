@@ -1,16 +1,9 @@
 import { Request, Response } from 'express';
 import { nanoid } from 'nanoid';
-const { neon } = require('@neondatabase/serverless');
-const { v2: cloudinary } = require('cloudinary');
+import { neon } from '@neondatabase/serverless';
+import { v2 as cloudinary } from 'cloudinary';
 
-const sql = neon(process.env.DATABASE_URL);
-
-interface File {
-  id: number;
-  filename: string;
-  url: string;
-  createdAt: Date;
-}
+const sql = neon(process.env.DATABASE_URL!);
 
 interface Resource {
   asset_id: string;
@@ -41,7 +34,7 @@ const getAllFiles = async (req: Request, res: Response): Promise<void> => {
       LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const transformedFiles = files.map((file: File) => ({
+    const transformedFiles = files.map((file: Record<string, any>) => ({
       id: file.id,
       filename: file.filename,
       url: file.url,
@@ -110,7 +103,7 @@ const getAllThumbnails = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-async function uploadThumbnail(req: Request, res: Response): Promise<void> {
+const uploadThumbnail = async (req: Request, res: Response): Promise<void> => {
   try {
     const { file, filename } = req.body;
 

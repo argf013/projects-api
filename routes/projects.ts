@@ -35,7 +35,7 @@ const isValidUrl = (url: string): boolean => {
   }
 };
 
-async function getAllProjects(req: Request, res: Response) {
+const getAllProjects = async (req: Request, res: Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -80,9 +80,9 @@ async function getAllProjects(req: Request, res: Response) {
       .status(500)
       .json({ code: 500, message: 'Internal Server Error', data: null });
   }
-}
+};
 
-async function getProjectById(req: Request, res: Response): Promise<void> {
+const getProjectById = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const project = await sql`SELECT * FROM projects WHERE id = ${id}`;
@@ -116,9 +116,9 @@ async function getProjectById(req: Request, res: Response): Promise<void> {
       .status(500)
       .json({ code: 500, message: 'Internal Server Error', data: null });
   }
-}
+};
 
-async function createProject(req: Request, res: Response): Promise<void> {
+const createProject = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, shortDesc, desc, thumbnail } = req.body;
 
@@ -205,9 +205,9 @@ async function createProject(req: Request, res: Response): Promise<void> {
       data: null,
     });
   }
-}
+};
 
-async function updateProject(req: Request, res: Response): Promise<void> {
+const updateProject = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { name, shortDesc, desc, thumbnail } = req.body;
@@ -418,9 +418,9 @@ async function updateProject(req: Request, res: Response): Promise<void> {
       data: null,
     });
   }
-}
+};
 
-async function deleteProject(req: Request, res: Response): Promise<void> {
+const deleteProject = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
@@ -464,7 +464,7 @@ async function deleteProject(req: Request, res: Response): Promise<void> {
       message: 'Internal Server Error',
     });
   }
-}
+};
 
 export {
   getAllProjects,
