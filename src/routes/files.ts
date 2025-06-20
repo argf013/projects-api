@@ -47,12 +47,12 @@ const getAllFiles = async (req: Request, res: Response): Promise<void> => {
     res.json({
       code: 200,
       message: 'Files retrieved successfully',
+      total: parseInt(total),
+      totalPages: Math.ceil(total / limit),
       data: transformedFiles,
       pagination: {
         page,
         limit,
-        total: parseInt(total),
-        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
@@ -106,6 +106,8 @@ const getAllThumbnails = async (req: Request, res: Response): Promise<void> => {
 const uploadThumbnail = async (req: Request, res: Response): Promise<void> => {
   try {
     const { file, filename } = req.body;
+    const id = nanoid();
+
 
     if (!file || !filename) {
       res.status(400).json({
@@ -117,7 +119,7 @@ const uploadThumbnail = async (req: Request, res: Response): Promise<void> => {
 
     const uploadResult = await cloudinary.uploader.upload(file, {
       folder: 'project-thumbnails',
-      public_id: `${nanoid()}_${filename.split('.')[0]}`,
+      public_id: `${id}`,
       resource_type: 'image',
       transformation: [
         { width: 800, height: 600, crop: 'limit' },
@@ -125,7 +127,7 @@ const uploadThumbnail = async (req: Request, res: Response): Promise<void> => {
       ],
     });
 
-    const fileId = nanoid();
+    const fileId = `project-thumbnails/${id}`;
     const now = new Date().toISOString();
 
     await sql`INSERT INTO files (id, filename, url, "createdAt") VALUES (${fileId}, ${filename}, ${uploadResult.secure_url}, ${now})`;
@@ -145,6 +147,71 @@ const uploadThumbnail = async (req: Request, res: Response): Promise<void> => {
       .status(500)
       .json({ code: 500, message: 'Internal Server Error', data: null });
   }
-}
+};
 
-export { getAllFiles, getAllThumbnails, uploadThumbnail };
+const deleteThumbnails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({
+        code: 400,
+        message: 'IDs array is required and cannot be empty',
+        data: null,
+      });
+      return;
+    }
+
+    const deleteResults = await Promise.allSettled(
+      ids.map((id: string) => cloudinary.uploader.destroy(id))
+    );
+
+    const successfulDeletes: string[] = [];
+    const failedDeletes: string[] = [];
+
+    deleteResults.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value.result === 'ok') {
+        successfulDeletes.push(ids[index]);
+      } else {
+        failedDeletes.push(ids[index]);
+      }
+    });
+
+    const filenamesToDelete = successfulDeletes.map((id) => {
+        const filename = id.replace('project-thumbnails/', '');
+        return filename;
+      });
+
+    if (successfulDeletes.length > 0) {
+      const filenamesToDelete = successfulDeletes.map((id) => {
+        const filename = id.replace('project-thumbnails/', '');
+        return filename;
+      });
+
+      await sql`
+        DELETE FROM files 
+        WHERE filename = ANY(${filenamesToDelete})
+      `;
+    }
+
+    res.json({
+      code: 200,
+      message: `Successfully deleted ${successfulDeletes.length} thumbnails`,
+      data: {
+        successful: successfulDeletes,
+        failed: failedDeletes,
+        totalRequested: ids.length,
+        totalDeleted: successfulDeletes.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error deleting thumbnails:', error);
+    res.status(500).json({
+      code: 500,
+      message: 'Internal Server Error',
+      data: null,
+    });
+  }
+};
+
+export { getAllFiles, getAllThumbnails, uploadThumbnail, deleteThumbnails };

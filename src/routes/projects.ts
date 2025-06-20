@@ -6,6 +6,7 @@ import { v2 as cloudinary } from 'cloudinary';
 interface Thumbnail {
   url: string;
   filename: string | null;
+  id: string;
 }
 
 interface Project {
@@ -20,7 +21,6 @@ interface Project {
 
 const sql = neon(process.env.DATABASE_URL!);
 
-// helper function
 const generateShortDesc = (desc: string, maxLength = 50): string => {
   if (desc.length <= maxLength) return desc;
   return desc.substring(0, maxLength).trim() + '...';
@@ -66,12 +66,12 @@ const getAllProjects = async (req: Request, res: Response) => {
     res.json({
       code: 200,
       message: 'Projects retrieved successfully',
+      total: parseInt(total),
+      totalPages: Math.ceil(total / limit),
       data: transformedProjects,
       pagination: {
         page,
         limit,
-        total: parseInt(total),
-        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
@@ -134,17 +134,17 @@ const createProject = async (req: Request, res: Response): Promise<void> => {
     let valid = false;
 
     if (typeof thumbnail === 'string') {
-      // Check if filename exists in files
       const files =
         await sql`SELECT * FROM files WHERE filename = ${thumbnail} LIMIT 1`;
       if (files.length > 0) {
         thumbnailObj = {
           url: files[0].url,
           filename: files[0].filename,
+          id: files[0].id,
         };
         valid = true;
       } else if (isValidUrl(thumbnail)) {
-        thumbnailObj = { url: thumbnail, filename: null };
+        thumbnailObj = { url: thumbnail, filename: null, id: null };
         valid = true;
       }
     } else if (
@@ -153,7 +153,20 @@ const createProject = async (req: Request, res: Response): Promise<void> => {
       thumbnail.filename
     ) {
       if (isValidUrl(thumbnail.url)) {
-        thumbnailObj = thumbnail;
+        // If thumbnail object already has an id, use it; otherwise look it up
+        let thumbnailId = thumbnail.id || null;
+        if (!thumbnailId && thumbnail.filename) {
+          const files =
+            await sql`SELECT id FROM files WHERE filename = ${thumbnail.filename} LIMIT 1`;
+          if (files.length > 0) {
+            thumbnailId = files[0].id;
+          }
+        }
+        thumbnailObj = {
+          url: thumbnail.url,
+          filename: thumbnail.filename,
+          id: thumbnailId,
+        };
         valid = true;
       }
     }
@@ -212,7 +225,6 @@ const updateProject = async (req: Request, res: Response): Promise<void> => {
     const { id } = req.params;
     const { name, shortDesc, desc, thumbnail } = req.body;
 
-    // Check if project exists
     const existingProject = await sql`SELECT * FROM projects WHERE id = ${id}`;
     if (existingProject.length === 0) {
       res.status(404).json({
@@ -220,6 +232,7 @@ const updateProject = async (req: Request, res: Response): Promise<void> => {
         message: 'Project not found',
         data: null,
       });
+      return;
     }
 
     const currentProject = existingProject[0];
@@ -237,10 +250,11 @@ const updateProject = async (req: Request, res: Response): Promise<void> => {
           thumbnailObj = {
             url: files[0].url,
             filename: files[0].filename,
+            id: files[0].id,
           };
           valid = true;
         } else if (isValidUrl(thumbnail)) {
-          thumbnailObj = { url: thumbnail, filename: null };
+          thumbnailObj = { url: thumbnail, filename: null, id: null };
           valid = true;
         }
       } else if (
@@ -249,7 +263,20 @@ const updateProject = async (req: Request, res: Response): Promise<void> => {
         thumbnail.filename
       ) {
         if (isValidUrl(thumbnail.url)) {
-          thumbnailObj = thumbnail;
+          // If thumbnail object already has an id, use it; otherwise look it up
+          let thumbnailId = thumbnail.id || null;
+          if (!thumbnailId && thumbnail.filename) {
+            const files =
+              await sql`SELECT id FROM files WHERE filename = ${thumbnail.filename} LIMIT 1`;
+            if (files.length > 0) {
+              thumbnailId = files[0].id;
+            }
+          }
+          thumbnailObj = {
+            url: thumbnail.url,
+            filename: thumbnail.filename,
+            id: thumbnailId,
+          };
           valid = true;
         }
       }
@@ -260,46 +287,122 @@ const updateProject = async (req: Request, res: Response): Promise<void> => {
             'Thumbnail must be a valid filename (uploaded file) or a valid URL',
           data: null,
         });
+        return;
       }
       newThumbnail = JSON.stringify(thumbnailObj);
     }
 
-    // If thumbnail is being updated, delete old thumbnail from Cloudinary
-    if (thumbnail !== undefined && currentProject.thumbnail) {
-      let oldThumbnailUrl = null;
+    // Parse old thumbnail for comparison
+    let oldThumbnailObj = null;
+    if (currentProject.thumbnail) {
       try {
-        const oldThumb =
+        oldThumbnailObj =
           typeof currentProject.thumbnail === 'string'
             ? JSON.parse(currentProject.thumbnail)
             : currentProject.thumbnail;
-        oldThumbnailUrl = oldThumb.url || oldThumb;
       } catch {
-        oldThumbnailUrl = currentProject.thumbnail;
+        oldThumbnailObj = {
+          url: currentProject.thumbnail,
+          filename: null,
+          id: null,
+        };
       }
-      if (
-        oldThumbnailUrl &&
-        typeof oldThumbnailUrl === 'string' &&
-        oldThumbnailUrl.includes('cloudinary.com')
-      ) {
-        const matches = oldThumbnailUrl.match(/\/project-thumbnails\/([^\.]+)/);
-        if (matches && matches[1]) {
-          try {
-            await cloudinary.uploader.destroy(
-              `project-thumbnails/${matches[1]}`
+    }
+
+    // Function to compare thumbnails
+    const isSameThumbnail = (oldThumb: any, newThumb: any): boolean => {
+      if (!oldThumb || !newThumb) return false;
+      
+      // Compare by URL first (most reliable)
+      if (oldThumb.url && newThumb.url && oldThumb.url === newThumb.url) {
+        return true;
+      }
+      
+      // Compare by id if both have it
+      if (oldThumb.id && newThumb.id && oldThumb.id === newThumb.id) {
+        return true;
+      }
+      
+      // Compare by filename if both have it
+      if (oldThumb.filename && newThumb.filename && oldThumb.filename === newThumb.filename) {
+        return true;
+      }
+      
+      return false;
+    };
+
+    // Enhanced old thumbnail deletion logic with comparison check
+    if (thumbnail !== undefined && currentProject.thumbnail && !isSameThumbnail(oldThumbnailObj, thumbnailObj)) {
+      try {
+        if (
+          oldThumbnailObj &&
+          oldThumbnailObj.url &&
+          typeof oldThumbnailObj.url === 'string' &&
+          oldThumbnailObj.url.includes('cloudinary.com')
+        ) {
+          let publicId = null;
+          let fileRecord = null;
+
+          // Priority 1: Use the id from thumbnail object if available
+          if (oldThumbnailObj.id) {
+            if (oldThumbnailObj.id.startsWith('project-thumbnails/')) {
+              publicId = oldThumbnailObj.id; // Already has the full path
+            } else {
+              publicId = `project-thumbnails/${oldThumbnailObj.id}`;
+            }
+
+            // Get the file record for deletion from files table using the public id
+            fileRecord = await sql`
+              SELECT * FROM files WHERE id = ${publicId} LIMIT 1
+            `;
+          } else {
+            // Fallback: extract from URL pattern if id is not available
+            const matches = oldThumbnailObj.url.match(
+              /\/project-thumbnails\/([^\.]+)/
             );
-          } catch (cloudinaryError) {
+            if (matches && matches[1]) {
+              publicId = `project-thumbnails/${matches[1]}`;
+
+              // Try to get file record using the extracted public id
+              fileRecord = await sql`
+                SELECT * FROM files WHERE id = ${publicId} LIMIT 1
+              `;
+            }
+          }
+
+          if (publicId) {
+            try {
+              const result = await cloudinary.uploader.destroy(publicId);
+              console.log(`Old thumbnail deleted from Cloudinary: ${result.result}`);
+
+              // Delete from files table if file record exists
+              if (fileRecord && fileRecord.length > 0) {
+                await sql`DELETE FROM files WHERE id = ${publicId}`;
+                console.log(`File record deleted from database: ${publicId}`);
+              }
+            } catch (cloudinaryError) {
+              console.error(
+                'Error deleting old thumbnail from Cloudinary:',
+                cloudinaryError
+              );
+            }
+          } else {
             console.error(
-              'Error deleting old thumbnail from Cloudinary:',
-              cloudinaryError
+              `Could not determine public ID for old thumbnail: ${JSON.stringify(
+                oldThumbnailObj
+              )}`
             );
           }
         }
+      } catch (error) {
+        console.error('Error processing old thumbnail deletion:', error);
       }
+    } else if (thumbnail !== undefined && isSameThumbnail(oldThumbnailObj, thumbnailObj)) {
+      console.log('New thumbnail is the same as old thumbnail, skipping deletion');
     }
 
     let updatedProject;
 
-    // Update logic: use newThumbnail if defined
     if (
       name !== undefined &&
       desc !== undefined &&
@@ -381,7 +484,6 @@ const updateProject = async (req: Request, res: Response): Promise<void> => {
         RETURNING *
       `;
     } else {
-      // No fields to update
       updatedProject = existingProject;
     }
 
@@ -422,43 +524,146 @@ const updateProject = async (req: Request, res: Response): Promise<void> => {
 
 const deleteProject = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const { ids } = req.body;
 
-    // Check if project exists and get thumbnail URL
-    const existingProject = await sql`SELECT * FROM projects WHERE id = ${id}`;
-    if (existingProject.length === 0) {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({
+        code: 400,
+        message:
+          'ids array is required and must contain at least one project ID',
+      });
+      return;
+    }
+
+    const existingProjects =
+      await sql`SELECT * FROM projects WHERE id = ANY(${ids})`;
+
+    if (existingProjects.length === 0) {
       res.status(404).json({
         code: 404,
-        message: 'Project not found',
+        message: 'No projects found with the provided IDs',
       });
+      return;
     }
 
-    // Delete thumbnail from Cloudinary
-    try {
-      const thumbnailUrl = existingProject[0].thumbnail;
-      if (thumbnailUrl.includes('cloudinary.com')) {
-        const matches = thumbnailUrl.match(/\/project-thumbnails\/([^\.]+)/);
-        if (matches && matches[1]) {
-          await cloudinary.uploader.destroy(`project-thumbnails/${matches[1]}`);
+    const foundIds = existingProjects.map((project: any) => project.id);
+    const notFoundIds = ids.filter((id: string) => !foundIds.includes(id));
+
+    if (notFoundIds.length > 0) {
+      res.status(404).json({
+        code: 404,
+        message: `Projects not found with IDs: ${notFoundIds.join(', ')}`,
+      });
+      return;
+    }
+
+    const cloudinaryDeletionResults = [];
+    for (const project of existingProjects) {
+      try {
+        let thumbnailObj = null;
+        try {
+          thumbnailObj =
+            typeof project.thumbnail === 'string'
+              ? JSON.parse(project.thumbnail)
+              : project.thumbnail;
+        } catch {
+          thumbnailObj = { url: project.thumbnail, filename: null, id: null };
         }
+
+        if (
+          thumbnailObj &&
+          thumbnailObj.url &&
+          typeof thumbnailObj.url === 'string' &&
+          thumbnailObj.url.includes('cloudinary.com')
+        ) {
+          let publicId = null;
+          let fileRecord = null;
+          let fileId = null;
+
+          // Priority 1: Use the id from thumbnail object if available
+          if (thumbnailObj.id) {
+            if (thumbnailObj.id.startsWith('project-thumbnails/')) {
+              publicId = thumbnailObj.id; // Already has the full path
+            }
+
+            // Get the file record for deletion from files table using the public id
+            fileRecord = await sql`
+              SELECT * FROM files WHERE id = ${publicId} LIMIT 1
+            `;
+          }
+
+          if (publicId) {
+            const result = await cloudinary.uploader.destroy(publicId);
+
+            // Delete from files table if file record exists
+            if (fileRecord && fileRecord.length > 0) {
+              await sql`DELETE FROM files WHERE id = ${publicId}`;
+            }
+
+            cloudinaryDeletionResults.push({
+              id: project.id,
+              success: result.result === 'ok',
+              publicId: publicId,
+              cloudinaryResult: result.result,
+              fileDeleted: fileRecord && fileRecord.length > 0,
+              thumbnailId: thumbnailObj.id,
+              filename: thumbnailObj.filename,
+            });
+          } else {
+            console.error(
+              `Could not determine public ID for thumbnail: ${JSON.stringify(
+                thumbnailObj
+              )}`
+            );
+            cloudinaryDeletionResults.push({
+              id: project.id,
+              success: false,
+              error: 'Could not determine public ID for thumbnail',
+              thumbnailObj: thumbnailObj,
+            });
+          }
+        } else {
+          cloudinaryDeletionResults.push({
+            id: project.id,
+            success: true,
+            note: 'No Cloudinary URL found or not a Cloudinary image',
+            thumbnailObj: thumbnailObj,
+          });
+        }
+      } catch (cloudinaryError) {
+        console.error(
+          `Error deleting thumbnail from Cloudinary for project ${project.id}:`,
+          cloudinaryError
+        );
+        cloudinaryDeletionResults.push({
+          id: project.id,
+          success: false,
+          error:
+            cloudinaryError instanceof Error
+              ? cloudinaryError.message
+              : 'Unknown error',
+        });
       }
-    } catch (cloudinaryError) {
-      console.error(
-        'Error deleting thumbnail from Cloudinary:',
-        cloudinaryError
-      );
-      // Continue with project deletion even if thumbnail deletion fails
     }
 
-    // Delete project from database
-    await sql`DELETE FROM projects WHERE id = ${id}`;
+    // Delete projects from database
+    await sql`DELETE FROM projects WHERE id = ANY(${ids})`;
+
+    const message =
+      ids.length === 1
+        ? 'Project deleted successfully'
+        : `${ids.length} projects deleted successfully`;
 
     res.json({
       code: 200,
-      message: 'Project deleted successfully',
+      message,
+      data: {
+        deletedIds: foundIds,
+        thumbnailDeletionResults: cloudinaryDeletionResults,
+      },
     });
   } catch (error) {
-    console.error('Error deleting project:', error);
+    console.error('Error deleting project(s):', error);
     res.status(500).json({
       code: 500,
       message: 'Internal Server Error',
